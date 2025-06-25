@@ -2,5 +2,7 @@ services:
   - type: web
     name: playstore-sentiment-service
     env: python
-    buildCommand: pip install --no-cache-dir -r requirements.txt
+    buildCommand: |
+      pip install --upgrade pip
+      pip install --no-cache-dir -r requirements.txt
     startCommand: python main.py
