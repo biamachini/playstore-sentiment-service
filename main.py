@@ -7,6 +7,18 @@ import os
 app = Flask(__name__)
 last_review_id = None
 
+# Função para analisar o sentimento de um texto
+def analyze_sentiment(text):
+    blob = TextBlob(text)
+    polarity = blob.sentiment.polarity
+    if polarity > 0.1:
+        sentiment = "positivo"
+    elif polarity < -0.1:
+        sentiment = "negativo"
+    else:
+        sentiment = "neutro"
+    return {"sentiment": sentiment, "polarity": polarity}
+
 @app.route('/backfill')
 def backfill():
     APP_ID = 'co.stone.banking.mobile.flagship'
@@ -26,10 +38,15 @@ def backfill():
         for r in result:
             if r['at'] < cutoff:
                 return jsonify(all_reviews)
+
+            sentiment_data = analyze_sentiment(r["content"])
+
             all_reviews.append({
                 "reviewId": r["reviewId"],
                 "date": r["at"].isoformat(),
-                "content": r["content"]
+                "content": r["content"],
+                "sentiment": sentiment_data["sentiment"],
+                "polarity": sentiment_data["polarity"]
             })
         if not token:
             break
@@ -53,21 +70,14 @@ def get_reviews():
         if r['reviewId'] == last_review_id:
             break
 
-        blob = TextBlob(r['content'])
-        polarity = blob.sentiment.polarity
-        if polarity > 0.1:
-            sentiment = "positivo"
-        elif polarity < -0.1:
-            sentiment = "negativo"
-        else:
-            sentiment = "neutro"
+        sentiment_data = analyze_sentiment(r["content"])
 
         output.append({
             "reviewId": r["reviewId"],
             "date": r["at"].isoformat(),
             "content": r["content"],
-            "sentiment": sentiment,
-            "polarity": polarity
+            "sentiment": sentiment_data["sentiment"],
+            "polarity": sentiment_data["polarity"]
         })
 
     if result:
