@@ -2,3 +2,5 @@ flask
 google-play-scraper
 textblob
 deep-translator
+transformers
+torch
