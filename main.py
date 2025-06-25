@@ -1,23 +1,27 @@
 from flask import Flask, jsonify
 from google_play_scraper import reviews, Sort
 from textblob import TextBlob
+from deep_translator import GoogleTranslator
 from datetime import datetime, timedelta
 import os
 
 app = Flask(__name__)
 last_review_id = None
 
-# Função para analisar o sentimento de um texto
-def analyze_sentiment(text):
-    blob = TextBlob(text)
-    polarity = blob.sentiment.polarity
-    if polarity > 0.1:
-        sentiment = "positivo"
-    elif polarity < -0.1:
-        sentiment = "negativo"
-    else:
-        sentiment = "neutro"
-    return {"sentiment": sentiment, "polarity": polarity}
+def analyze_sentiment_pt(text):
+    try:
+        translated = GoogleTranslator(source='auto', target='en').translate(text)
+        blob = TextBlob(translated)
+        polarity = blob.sentiment.polarity
+        if polarity > 0.1:
+            sentiment = "positivo"
+        elif polarity < -0.1:
+            sentiment = "negativo"
+        else:
+            sentiment = "neutro"
+        return sentiment, polarity
+    except Exception as e:
+        return "indefinido", 0
 
 @app.route('/backfill')
 def backfill():
@@ -39,15 +43,16 @@ def backfill():
             if r['at'] < cutoff:
                 return jsonify(all_reviews)
 
-            sentiment_data = analyze_sentiment(r["content"])
+            sentiment, polarity = analyze_sentiment_pt(r['content'])
 
             all_reviews.append({
                 "reviewId": r["reviewId"],
                 "date": r["at"].isoformat(),
                 "content": r["content"],
-                "sentiment": sentiment_data["sentiment"],
-                "polarity": sentiment_data["polarity"]
+                "sentiment": sentiment,
+                "polarity": polarity
             })
+
         if not token:
             break
 
@@ -70,14 +75,14 @@ def get_reviews():
         if r['reviewId'] == last_review_id:
             break
 
-        sentiment_data = analyze_sentiment(r["content"])
+        sentiment, polarity = analyze_sentiment_pt(r['content'])
 
         output.append({
             "reviewId": r["reviewId"],
             "date": r["at"].isoformat(),
             "content": r["content"],
-            "sentiment": sentiment_data["sentiment"],
-            "polarity": sentiment_data["polarity"]
+            "sentiment": sentiment,
+            "polarity": polarity
         })
 
     if result:
@@ -86,6 +91,5 @@ def get_reviews():
     return jsonify(output)
 
 if __name__ == '__main__':
-    # Usa a porta do ambiente (p/ deploy) ou 3000 por padrão
     port = int(os.environ.get('PORT', 3000))
     app.run(host='0.0.0.0', port=port)
