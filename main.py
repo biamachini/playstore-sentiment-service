@@ -1,27 +1,25 @@
 from flask import Flask, jsonify
 from google_play_scraper import reviews, Sort
-from textblob import TextBlob
-from deep_translator import GoogleTranslator
+from transformers import pipeline
 from datetime import datetime, timedelta
 import os
 
 app = Flask(__name__)
 last_review_id = None
 
-def analyze_sentiment_pt(text):
-    try:
-        translated = GoogleTranslator(source='auto', target='en').translate(text)
-        blob = TextBlob(translated)
-        polarity = blob.sentiment.polarity
-        if polarity > 0.1:
-            sentiment = "positivo"
-        elif polarity < -0.1:
-            sentiment = "negativo"
-        else:
-            sentiment = "neutro"
-        return sentiment, polarity
-    except Exception as e:
-        return "indefinido", 0
+# Inicializa o pipeline de análise de sentimento do Hugging Face
+sentiment_model = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
+
+def classify_sentiment(text):
+    prediction = sentiment_model(text)[0]
+    stars = int(prediction['label'].split()[0])  # Nota de 1 a 5
+
+    if stars <= 2:
+        return "negativo", stars
+    elif stars == 3:
+        return "neutro", stars
+    else:
+        return "positivo", stars
 
 @app.route('/backfill')
 def backfill():
@@ -43,7 +41,7 @@ def backfill():
             if r['at'] < cutoff:
                 return jsonify(all_reviews)
 
-            sentiment, polarity = analyze_sentiment_pt(r['content'])
+            sentiment, polarity = classify_sentiment(r["content"])
 
             all_reviews.append({
                 "reviewId": r["reviewId"],
@@ -52,7 +50,6 @@ def backfill():
                 "sentiment": sentiment,
                 "polarity": polarity
             })
-
         if not token:
             break
 
@@ -75,7 +72,7 @@ def get_reviews():
         if r['reviewId'] == last_review_id:
             break
 
-        sentiment, polarity = analyze_sentiment_pt(r['content'])
+        sentiment, polarity = classify_sentiment(r["content"])
 
         output.append({
             "reviewId": r["reviewId"],
