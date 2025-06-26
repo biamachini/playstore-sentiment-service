@@ -15,7 +15,6 @@ leia_analyzer = LeiaSentimentAnalyzer()
 ANALYZER = 'leia'  # Troque para 'textblob' para usar o TextBlob normalmente
 
 def analyze_sentiment_leia(text):
-    # Análise com LeIA
     result = leia_analyzer.polarity_scores(text)
     compound = result.get("compound", 0)
     if compound > 0.1:
@@ -27,7 +26,6 @@ def analyze_sentiment_leia(text):
     return {"sentiment": sentiment, "polarity": compound, "source": "leia"}
 
 def analyze_sentiment_textblob(text):
-    # Análise com TextBlob
     blob = TextBlob(text)
     polarity = blob.sentiment.polarity
     if polarity > 0.1:
@@ -39,7 +37,6 @@ def analyze_sentiment_textblob(text):
     return {"sentiment": sentiment, "polarity": polarity, "source": "textblob"}
 
 def analyze_sentiment(text):
-    # Função que decide qual analisar usar, tenta LeIA e fallback TextBlob se erro
     if ANALYZER == 'leia':
         try:
             return analyze_sentiment_leia(text)
@@ -74,6 +71,7 @@ def backfill():
             all_reviews.append({
                 "reviewId": r["reviewId"],
                 "date": r["at"].isoformat(),
+                "score": r["score"],  # ✅ Campo adicionado
                 "content": r["content"],
                 "sentiment": sentiment_data["sentiment"],
                 "polarity": sentiment_data["polarity"],
@@ -106,6 +104,7 @@ def get_reviews():
         output.append({
             "reviewId": r["reviewId"],
             "date": r["at"].isoformat(),
+            "score": r["score"],  # ✅ Campo adicionado aqui também
             "content": r["content"],
             "sentiment": sentiment_data["sentiment"],
             "polarity": sentiment_data["polarity"],
