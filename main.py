@@ -1,14 +1,33 @@
 from flask import Flask, jsonify
 from google_play_scraper import reviews, Sort
 from textblob import TextBlob
+from leia import SentimentIntensityAnalyzer as LeiaSentimentAnalyzer
 from datetime import datetime, timedelta
 import os
 
 app = Flask(__name__)
 last_review_id = None
 
-# Função para analisar o sentimento de um texto
-def analyze_sentiment(text):
+# Inicializa o analisador LeIA (fora da função pra reaproveitar)
+leia_analyzer = LeiaSentimentAnalyzer()
+
+# Variável para controlar qual analisador usar: 'leia' ou 'textblob'
+ANALYZER = 'leia'  # Troque para 'textblob' para usar o TextBlob normalmente
+
+def analyze_sentiment_leia(text):
+    # Análise com LeIA
+    result = leia_analyzer.polarity_scores(text)
+    compound = result.get("compound", 0)
+    if compound > 0.1:
+        sentiment = "positivo"
+    elif compound < -0.1:
+        sentiment = "negativo"
+    else:
+        sentiment = "neutro"
+    return {"sentiment": sentiment, "polarity": compound, "source": "leia"}
+
+def analyze_sentiment_textblob(text):
+    # Análise com TextBlob
     blob = TextBlob(text)
     polarity = blob.sentiment.polarity
     if polarity > 0.1:
@@ -17,7 +36,18 @@ def analyze_sentiment(text):
         sentiment = "negativo"
     else:
         sentiment = "neutro"
-    return {"sentiment": sentiment, "polarity": polarity}
+    return {"sentiment": sentiment, "polarity": polarity, "source": "textblob"}
+
+def analyze_sentiment(text):
+    # Função que decide qual analisar usar, tenta LeIA e fallback TextBlob se erro
+    if ANALYZER == 'leia':
+        try:
+            return analyze_sentiment_leia(text)
+        except Exception as e:
+            print(f"Erro LeIA: {e}. Usando TextBlob como fallback.")
+            return analyze_sentiment_textblob(text)
+    else:
+        return analyze_sentiment_textblob(text)
 
 @app.route('/backfill')
 def backfill():
@@ -45,9 +75,9 @@ def backfill():
                 "reviewId": r["reviewId"],
                 "date": r["at"].isoformat(),
                 "content": r["content"],
-                "score": r["score"],  # ⬅️ Aqui incluímos a nota
                 "sentiment": sentiment_data["sentiment"],
-                "polarity": sentiment_data["polarity"]
+                "polarity": sentiment_data["polarity"],
+                "analyzer": sentiment_data["source"]
             })
         if not token:
             break
@@ -77,9 +107,9 @@ def get_reviews():
             "reviewId": r["reviewId"],
             "date": r["at"].isoformat(),
             "content": r["content"],
-            "score": r["score"],  # ⬅️ Aqui também incluímos a nota
             "sentiment": sentiment_data["sentiment"],
-            "polarity": sentiment_data["polarity"]
+            "polarity": sentiment_data["polarity"],
+            "analyzer": sentiment_data["source"]
         })
 
     if result:
@@ -88,7 +118,5 @@ def get_reviews():
     return jsonify(output)
 
 if __name__ == '__main__':
-    # Usa a porta do ambiente (p/ deploy) ou 3000 por padrão
     port = int(os.environ.get('PORT', 3000))
     app.run(host='0.0.0.0', port=port)
-

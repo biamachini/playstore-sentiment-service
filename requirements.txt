@@ -1,3 +1,5 @@
 flask
 google-play-scraper
+requests
 textblob
+git+https://github.com/rafjaa/LeIA.git#egg=leia&subdirectory=leia
