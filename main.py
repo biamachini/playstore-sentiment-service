@@ -1,121 +1,85 @@
-import os
-import requests
 from flask import Flask, jsonify
-from google_play_scraper import reviews, Sort
+from google_play_scraper import Sort, reviews
+from textblob import TextBlob
 from datetime import datetime, timedelta
+import pytz
 
 app = Flask(__name__)
-last_review_id = None
 
-# Seu token da Hugging Face (definido como variável de ambiente no Render)
-HF_TOKEN = os.environ.get("HF_TOKEN")
-HF_MODEL = "nlptown/bert-base-multilingual-uncased-sentiment"
+# Parâmetros
+APP_ID = "com.google.android.youtube"  # substitua pelo ID do app desejado
+DAYS = 30
+LIMIT = 100  # número máximo de avaliações para buscar
 
+# Função de análise de sentimentos com TextBlob
 def classify_sentiment(text):
-    if not HF_TOKEN:
-        raise RuntimeError("HF_TOKEN ausente no ambiente")
-    
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": text}
-    
-    try:
-        response = requests.post(
-            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        if isinstance(data, list) and len(data) > 0 and "label" in data[0]:
-            stars = int(data[0]["label"].split()[0])
-        else:
-            app.logger.error(f"Resposta inesperada da Hugging Face: {data}")
-            return "erro", 0
-        
-    except Exception as e:
-        app.logger.error(f"Erro na Inference API: {e}")
-        return "erro", 0
-
-    if stars <= 2:
-        return "negativo", stars
-    elif stars == 3:
-        return "neutro", stars
+    blob = TextBlob(text)
+    polarity = blob.sentiment.polarity
+    if polarity > 0.1:
+        sentiment = "positivo"
+    elif polarity < -0.1:
+        sentiment = "negativo"
     else:
-        return "positivo", stars
+        sentiment = "neutro"
+    return sentiment, polarity
 
-@app.route('/')
-def home():
-    return "✅ API rodando — use /get-reviews ou /backfill", 200
+# Rota raiz
+@app.route("/")
+def index():
+    return "✅ API rodando — use /get-reviews ou /backfill"
 
-@app.route('/backfill')
-def backfill():
-    APP_ID = 'co.stone.banking.mobile.flagship'
-    DAYS = 30
-    cutoff = datetime.utcnow() - timedelta(days=DAYS)
-    token = None
-    all_reviews = []
-
-    while True:
-        result, token = reviews(
-            APP_ID,
-            lang='pt_BR',
-            sort=Sort.NEWEST,
-            count=100,
-            continuation_token=token
-        )
-        for r in result:
-            # r["at"] é naïve em UTC, assim como cutoff
-            if r["at"] < cutoff:
-                return jsonify(all_reviews)
-
-            sentiment, polarity = classify_sentiment(r["content"])
-
-            all_reviews.append({
-                "reviewId": r["reviewId"],
-                "date": r["at"].isoformat(),
-                "content": r["content"],
-                "sentiment": sentiment,
-                "polarity": polarity
-            })
-        if not token:
-            break
-
-    return jsonify(all_reviews)
-
-@app.route('/get-reviews')
+# Rota para buscar e analisar avaliações recentes
+@app.route("/get-reviews")
 def get_reviews():
-    global last_review_id
-    APP_ID = 'co.stone.banking.mobile.flagship'
-
     result, _ = reviews(
         APP_ID,
-        lang='pt_BR',
+        lang="pt",
+        country="br",
         sort=Sort.NEWEST,
-        count=20
+        count=LIMIT
     )
 
-    output = []
+    processed = []
     for r in result:
-        if r["reviewId"] == last_review_id:
-            break
-
         sentiment, polarity = classify_sentiment(r["content"])
-
-        output.append({
-            "reviewId": r["reviewId"],
-            "date": r["at"].isoformat(),
+        processed.append({
+            "userName": r["userName"],
+            "score": r["score"],
             "content": r["content"],
+            "at": r["at"].isoformat(),
             "sentiment": sentiment,
             "polarity": polarity
         })
 
-    if result:
-        last_review_id = result[0]["reviewId"]
+    return jsonify(processed)
 
-    return jsonify(output)
+# Rota para avaliações mais antigas (simulando backfill)
+@app.route("/backfill")
+def backfill():
+    cutoff = datetime.now(pytz.UTC) - timedelta(days=DAYS)
+
+    result, _ = reviews(
+        APP_ID,
+        lang="pt",
+        country="br",
+        sort=Sort.NEWEST,
+        count=LIMIT
+    )
+
+    filtered = []
+    for r in result:
+        if r["at"] < cutoff:
+            sentiment, polarity = classify_sentiment(r["content"])
+            filtered.append({
+                "userName": r["userName"],
+                "score": r["score"],
+                "content": r["content"],
+                "at": r["at"].isoformat(),
+                "sentiment": sentiment,
+                "polarity": polarity
+            })
+
+    return jsonify(filtered)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 3000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
