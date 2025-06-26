@@ -12,16 +12,32 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 HF_MODEL = "nlptown/bert-base-multilingual-uncased-sentiment"
 
 def classify_sentiment(text):
+    if not HF_TOKEN:
+        raise RuntimeError("HF_TOKEN ausente no ambiente")
+    
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {"inputs": text}
-    resp = requests.post(
-        f"https://api-inference.huggingface.co/models/{HF_MODEL}",
-        headers=headers,
-        json=payload,
-        timeout=10
-    )
-    data = resp.json()
-    stars = int(data[0]["label"].split()[0])
+    
+    try:
+        response = requests.post(
+            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, list) and len(data) > 0 and "label" in data[0]:
+            stars = int(data[0]["label"].split()[0])
+        else:
+            app.logger.error(f"Resposta inesperada da Hugging Face: {data}")
+            return "erro", 0
+        
+    except Exception as e:
+        app.logger.error(f"Erro na Inference API: {e}")
+        return "erro", 0
+
     if stars <= 2:
         return "negativo", stars
     elif stars == 3:
