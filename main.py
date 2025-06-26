@@ -1,18 +1,14 @@
 from flask import Flask, jsonify
-from google_play_scraper import Sort, reviews
+from google_play_scraper import reviews, Sort
 from textblob import TextBlob
 from datetime import datetime, timedelta
-import pytz
+import os
 
 app = Flask(__name__)
+last_review_id = None
 
-# Parâmetros
-APP_ID = "com.google.android.youtube"  # substitua pelo ID do app desejado
-DAYS = 30
-LIMIT = 100  # número máximo de avaliações para buscar
-
-# Função de análise de sentimentos com TextBlob
-def classify_sentiment(text):
+# Função para analisar o sentimento de um texto
+def analyze_sentiment(text):
     blob = TextBlob(text)
     polarity = blob.sentiment.polarity
     if polarity > 0.1:
@@ -21,65 +17,75 @@ def classify_sentiment(text):
         sentiment = "negativo"
     else:
         sentiment = "neutro"
-    return sentiment, polarity
+    return {"sentiment": sentiment, "polarity": polarity}
 
-# Rota raiz
-@app.route("/")
-def index():
-    return "✅ API rodando — use /get-reviews ou /backfill"
+@app.route('/backfill')
+def backfill():
+    APP_ID = 'co.stone.banking.mobile.flagship'
+    DAYS = 30
+    cutoff = datetime.utcnow() - timedelta(days=DAYS)
+    token = None
+    all_reviews = []
 
-# Rota para buscar e analisar avaliações recentes
-@app.route("/get-reviews")
+    while True:
+        result, token = reviews(
+            APP_ID,
+            lang='pt_BR',
+            sort=Sort.NEWEST,
+            count=100,
+            continuation_token=token
+        )
+        for r in result:
+            if r['at'] < cutoff:
+                return jsonify(all_reviews)
+
+            sentiment_data = analyze_sentiment(r["content"])
+
+            all_reviews.append({
+                "reviewId": r["reviewId"],
+                "date": r["at"].isoformat(),
+                "content": r["content"],
+                "sentiment": sentiment_data["sentiment"],
+                "polarity": sentiment_data["polarity"]
+            })
+        if not token:
+            break
+
+    return jsonify(all_reviews)
+
+@app.route('/get-reviews')
 def get_reviews():
+    global last_review_id
+    APP_ID = 'co.stone.banking.mobile.flagship'
+
     result, _ = reviews(
         APP_ID,
-        lang="pt",
-        country="br",
+        lang='pt_BR',
         sort=Sort.NEWEST,
-        count=LIMIT
+        count=20
     )
 
-    processed = []
+    output = []
     for r in result:
-        sentiment, polarity = classify_sentiment(r["content"])
-        processed.append({
-            "userName": r["userName"],
-            "score": r["score"],
+        if r['reviewId'] == last_review_id:
+            break
+
+        sentiment_data = analyze_sentiment(r["content"])
+
+        output.append({
+            "reviewId": r["reviewId"],
+            "date": r["at"].isoformat(),
             "content": r["content"],
-            "at": r["at"].isoformat(),
-            "sentiment": sentiment,
-            "polarity": polarity
+            "sentiment": sentiment_data["sentiment"],
+            "polarity": sentiment_data["polarity"]
         })
 
-    return jsonify(processed)
+    if result:
+        last_review_id = result[0]['reviewId']
 
-# Rota para avaliações mais antigas (simulando backfill)
-@app.route("/backfill")
-def backfill():
-    cutoff = datetime.now(pytz.UTC) - timedelta(days=DAYS)
+    return jsonify(output)
 
-    result, _ = reviews(
-        APP_ID,
-        lang="pt",
-        country="br",
-        sort=Sort.NEWEST,
-        count=LIMIT
-    )
-
-    filtered = []
-    for r in result:
-        if r["at"] < cutoff:
-            sentiment, polarity = classify_sentiment(r["content"])
-            filtered.append({
-                "userName": r["userName"],
-                "score": r["score"],
-                "content": r["content"],
-                "at": r["at"].isoformat(),
-                "sentiment": sentiment,
-                "polarity": polarity
-            })
-
-    return jsonify(filtered)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    # Usa a porta do ambiente (p/ deploy) ou 3000 por padrão
+    port = int(os.environ.get('PORT', 3000))
+    app.run(host='0.0.0.0', port=port)
