@@ -45,6 +45,7 @@ def backfill():
                 "reviewId": r["reviewId"],
                 "date": r["at"].isoformat(),
                 "content": r["content"],
+                "score": r["score"],  # ⬅️ Aqui incluímos a nota
                 "sentiment": sentiment_data["sentiment"],
                 "polarity": sentiment_data["polarity"]
             })
@@ -76,6 +77,7 @@ def get_reviews():
             "reviewId": r["reviewId"],
             "date": r["at"].isoformat(),
             "content": r["content"],
+            "score": r["score"],  # ⬅️ Aqui também incluímos a nota
             "sentiment": sentiment_data["sentiment"],
             "polarity": sentiment_data["polarity"]
         })
@@ -89,3 +91,4 @@ if __name__ == '__main__':
     # Usa a porta do ambiente (p/ deploy) ou 3000 por padrão
     port = int(os.environ.get('PORT', 3000))
     app.run(host='0.0.0.0', port=port)
+
